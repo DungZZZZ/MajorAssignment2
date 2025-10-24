@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="./libs/d3.js"></script>
+    <script src="libs/d3jstopojson.v1.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <title>MA Map</title>
+    <style>
+        /* ADD: small legend style */
+        .legend { display:flex; gap:6px; align-items:center; margin-top:8px; font:12px/1.2 sans-serif; color:#333; }
+        .legend .sw { width:14px; height:14px; border:1px solid #0001; }
+        .fig { margin: 16px 0; display:flex; flex-direction:column; align-items:center; }
+        .fig h2 { margin: 8px 0 10px; font-family: sans-serif; }
+        #tooltip {
+            position: absolute;
+            opacity: 0;
+            top: 0;
+            left: 0;
+            width: auto;
+            padding: 10px;
+            background: white;
+            font-family: sans-serif;
+            font-size: medium;
+            border-radius: 2px;
+            line-height: 1;
+        }
+        
+        path {
+            stroke-width: .5px;
+            stroke: black
+        }
+        
+        path:hover {
+            opacity: .6;
+            stroke: black;
+            stroke-width: 4px;
+        }
+
+        .container{
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        body, h1, h2, h3 {
+            font-family: 'Roboto', sans-serif;
+        }
+        
+        h1 {
+            font-family: 'Georgia', serif;
+            font-size: 28px;
+            color: #2c3e50;
+            font-weight: bold;
+            margin-bottom: 0;
+            text-align: center;
+            letter-spacing: 0.5px;
+        }
+
+        h3 {
+            font-family: 'Arial', sans-serif;
+            font-size: 20px;
+            color: #555;
+            font-weight: normal;
+            margin-top: 4px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        h2 {
+            font-family: 'Arial', sans-serif;
+            font-size: 24px;
+            color: #34495e;
+            font-weight: 600;
+            margin-top: 24px;
+            margin-bottom: 8px;
+            text-align: center;
+        }
+
+        svg {
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            background-color: white;
+            border-radius: 8px;
+            margin: 10px 0;
+        }
+
+    </style>
+
+</head>
+
+<body>
+    <div id="tooltip"></div>
+    <div class="container">
+        <h1>Major Assignment 2 — Geospatial Choropleths</h1> <!--Tittle-->
+        <h3>Aiden Nguyen</h3>                                <!--Name-->
+        <div class="fig1">  <h2>Population in 1980</h2></div>        <!-- MAP A (1980 Population) -->
+        <div class="fig2">  <h2>Population Change (1980 - 2010)</h2></div>        <!-- MAP B (Population Change) -->
+        <div class="fig3">  <h2>Gini Index by Town</h2></div>        <!-- Add map C container (Color code) -->
+
+    </div>
+
+    <script>
+        /*-------------------------------------------------------*/
+        /*------------------- Window setting --------------------*/
+        /*-------------------------------------------------------*/
+        // dimension of the page
+        const window_dims = {
+            width: window.innerWidth,
+            height: window.innerHeight
+        };
+
+        
+        const svgWidth = window_dims.width/2;
+        const svgHeight = window_dims.width/3;
+        // Append an SVG element to body, then append a path for the boundaries
+
+
+
+        /*-------------------------------------------------------*/
+        /*-----------------parallel load data--------------------*/
+        /*-------------------------------------------------------*/
+
+        // a topojson file containing population of each town in different years
+        const MA_counties = "./data/towns.topojson";
+            // gini index per county
+        const gini_index = "./data/gini_index.csv";       
+
+
+        // open both files
+        Promise.all([
+            d3.json(MA_counties),
+            d3.csv(gini_index)
+        ]).then(data =>
+        {
+            // topology data
+            const topology_data = data[0];
+            // gini index data
+            const csv_data = data[1];
+
+            const generateMap1 = (topo_data,containerName,width,height,margin=30)=> {
+                const svg = d3.select(containerName).append("svg")
+                    .attr("width", width)
+                    .attr("height", height);
+
+            /*-------------------------------------------------------*/
+            /*-----------------Topojson data handling----------------*/
+            /*-------------------------------------------------------*/
+            // if topojson file is imported we need to 
+            // convert topology data to geojson 
+            const geojson = topojson.feature(topo_data, topo_data.objects.ma);
+
+            /*-------------------------------------------------------*/
+            /*----------------------Projections----------------------*/
+            /*-------------------------------------------------------*/
+            const projections = [
+                d3.geoAzimuthalEqualArea(), //Azimuthal projections project the sphere directly onto a plane.
+                d3.geoAlbersUsa(), // USA conic projection
+                d3.geoAlbers(), // equal-area conic projection
+                d3.geoMercator(), // cylindrical projection
+                d3.geoNaturalEarth1(), // pseudocylindrical projection designed by Tom Patterson
+                d3.geoEqualEarth(), // Equal Earth projection, by Bojan Šavrič et al., 2018.
+                d3.geoConicEqualArea(), //equal-area conic projection
+                d3.geoEquirectangular(), //Cylindrical Projections
+                d3.geoOrthographic()
+            ]
+            /*-------------------------------------------------------*/
+            /*----------------geoPath generator----------------------*/
+            /*-------------------------------------------------------*/
+
+            const geoPath_generator = d3.geoPath()
+                .projection(projections[3].fitSize([width-margin,height-margin], geojson))
+            /*-------------------------------------------------------*/
+            /*----------------------Color Scaling--------------------*/
+            /*-------------------------------------------------------*/
+            //https://observablehq.com/@d3/working-with-color
+            //https://colorbrewer2.org/#type=diverging&scheme=RdYlBu&n=6
+            const colorInterpolator = d3.interpolateRgbBasis(['#d73027','#fc8d59','#fee090','#e0f3f8','#91bfdb','#4575b4'].reverse())
+                // if the data is scaled using log scale
+            const logScale = d3.scaleLog()
+                .domain(d3.extent(geojson.features, (d) => {
+                    return d['properties']['POP1980']
+                }))
+            // if the data is scaled using linear scale
+            const linearScale = d3.scaleLinear()
+                .domain(d3.extent(geojson.features, (d) => {
+                    return d['properties']['POP1980']
+                }))
+            /*-------------------------------------------------------*/
+            /*---------------------- Tooltip ------------------------*/
+            /*-------------------------------------------------------*/
+            const tooltip = d3.select("#tooltip");
+            /*--------------------------------------------------------*/
+            /*----------------- channelling marks --------------------*/
+            /*--------------------------------------------------------*/
+
+            svg.selectAll("path")
+                .data(geojson.features)
+                .enter()
+                .append("path")
+                .attr("d", d => geoPath_generator(d))
+                //.attr("fill", d => colorInterpolator(logScale(d['properties']['POP1980'])))
+                .attr("fill", d => colorInterpolator(linearScale(d['properties']['POP1980'])))
+                .on("mouseenter", (m, d) => {
+                    tooltip.transition()
+                        .duration(200)
+                        .style("opacity", .9)
+                    tooltip.html(d['properties']['TOWN'])
+                        .style("left", event.pageX + 10 + "px")
+                        .style("top", event.pageY + 10 + "px");
+                })
+                .on("mousemove", (m, d) => {
+                    tooltip.style("opacity", .9)
+                })
+                .on("mouseout", (m, d) => {
+                    tooltip.transition()
+                        .duration(400)
+                        .style("opacity", 0)
+                })
+
+            }
+            
+
+            //MAP 2//
+            const generateMap2 = (topo_data, containerName, width, height, margin = 30) => {
+                const svg = d3.select(containerName).append("svg")
+                    .attr("width", width)
+                    .attr("height", height);
+
+                const geojson = topojson.feature(topo_data, topo_data.objects.ma);
+
+                const projection = d3.geoMercator().fitSize([width - margin, height - margin], geojson);
+                const path = d3.geoPath().projection(projection);
+
+                // Prepare color scale for population change
+                const colorInterpolator = d3.interpolateRgbBasis(['#d73027','#fee08b','#1a9850']);
+                const changeExtent = d3.extent(geojson.features, d => {
+                    const pop2010 = d.properties['POP2010'];
+                    const pop1980 = d.properties['POP1980'];
+                return pop2010 - pop1980;
+                });
+                const linearScale = d3.scaleLinear()
+                    .domain(changeExtent)
+                    .range([0, 1]);
+
+                // Tooltip
+                const tooltip = d3.select("#tooltip");
+
+            svg.selectAll("path")
+                .data(geojson.features)
+                .enter()
+                .append("path")
+                .attr("d", d => path(d))
+                .attr("fill", d => {
+                    const diff = d.properties['POP2010'] - d.properties['POP1980'];
+                    return colorInterpolator(linearScale(diff));
+                })
+                .on("mouseenter", (event, d) => {
+                    const change = d.properties['POP2010'] - d.properties['POP1980'];
+                    tooltip.transition().duration(200).style("opacity", .9);
+                    tooltip.html(`
+                        <b>${d.properties['TOWN']}</b><br/>
+                        1980: ${d.properties['POP1980']}<br/>
+                        2010: ${d.properties['POP2010']}<br/>
+                        Change: ${change > 0 ? '+' : ''}${change}
+                    `)
+                        .style("left", event.pageX + "px")
+                        .style("top", event.pageY + "px");
+                })
+                .on("mousemove", (event) => {
+                    tooltip
+                        .style("left", event.pageX + "px")
+                        .style("top", event.pageY + "px");
+                });
+            };
+
+            //Map 3
+            const fipsToCountyName = {
+                25001: "Barnstable County",
+                25003: "Berkshire County",
+                25005: "Bristol County",
+                25007: "Dukes County",
+                25009: "Essex County",
+                25011: "Franklin County",
+                25013: "Hampden County",
+                25015: "Hampshire County",
+                25017: "Middlesex County",
+                25019: "Nantucket County",
+                25021: "Norfolk County",
+                25023: "Plymouth County",
+                25025: "Suffolk County",
+                25027: "Worcester County",
+            };
+
+
+            const generateMap3 = (topo_data, gini_data, containerName, width, height, margin = 30) => {
+                const svg = d3.select(containerName).append("svg")
+                    .attr("width", width)
+                    .attr("height", height);
+
+                const geojson = topojson.feature(topo_data, topo_data.objects.ma);
+
+                const giniMap = new Map();
+                gini_data.forEach(d => {
+                    const county = d["Geographic Area Name"].replace(", Massachusetts", "").trim();
+                    const gini = +d["Estimate!!Gini Index"];
+                    if (!giniMap.has(county) && !isNaN(gini)) {
+                        giniMap.set(county, gini);
+                    }
+                });
+
+                const projection = d3.geoMercator().fitSize([width - margin, height - margin], geojson);
+                const path = d3.geoPath().projection(projection);
+
+                const giniDomain = d3.extent(Array.from(giniMap.values()));
+
+                const colorInterpolator = d3.scaleSequential(d3.interpolateViridis)
+                    .domain(giniDomain);
+
+                const tooltip = d3.select("#tooltip");
+
+                svg.selectAll("path")
+                    .data(geojson.features)
+                    .enter()
+                    .append("path")
+                    .attr("d", d => path(d))
+                    .attr("fill", d => {
+                        const fipsCode = d.properties.FIPS_STCO;
+                        const countyName = fipsToCountyName[fipsCode]; 
+                        const gini = giniMap.get(countyName);
+                        return gini !== undefined ? colorInterpolator(gini) : "#ccc";
+                    })
+                .on("mouseenter", (event, d) => {
+                    const townName = d.properties.TOWN;
+                    const fipsCode = d.properties.FIPS_STCO;
+                    const countyName = fipsToCountyName[fipsCode];
+                    const gini = giniMap.get(countyName);
+
+                    tooltip.transition()
+                        .duration(200)
+                        .style("opacity", 0.9);
+
+                    tooltip.html(`
+                        <b>Town:</b> ${townName}<br/>
+                        <b>County:</b> ${countyName || "N/A"}<br/>
+                        <b>Gini Index:</b> ${gini !== undefined ? gini.toFixed(3) : "N/A"}
+                    `)
+                        .style("left", event.pageX + 10 + "px")
+                        .style("top", event.pageY + 10 + "px");
+                })
+                .on("mousemove", (event) => {
+                    tooltip
+                        .style("left", event.pageX + 10 + "px")
+                        .style("top", event.pageY + 10 + "px");
+                })
+                .on("mouseout", () => {
+                    tooltip.transition()
+                    .duration(300)
+                    .style("opacity", 0);
+                });
+
+
+            };
+            
+
+            // MAP CALL
+            generateMap1(topology_data,".fig1",svgWidth,svgHeight);
+            generateMap2(topology_data, ".fig2", svgWidth, svgHeight);
+            generateMap3(topology_data, csv_data, ".fig3", svgWidth, svgHeight);
+
+        })
+
+
+
+
+        // app.get('/api/books/:isbn', (req,resp) => {
+        //     // use mongoose to retrieve all books from Mongo
+        //     Book.find({isbn10: req.params.isbn},
+        //         function(err, data) {
+        //             if (err) {
+        //                 resp.json({ message: 'Book not found' });
+        //             } else {
+        //                 resp.json(data);
+        //             }
+        //         });
+        // });
+
+
+
+
+    </script>
+</body>
+
+</html>
