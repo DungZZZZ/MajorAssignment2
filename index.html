@@ -304,6 +304,11 @@
                     tooltip
                         .style("left", event.pageX + "px")
                         .style("top", event.pageY + "px");
+                })
+                .on("mouseleave", () => {
+                    tooltip.transition()
+                        .duration(300)
+                        .style("opacity", 0);
                 });
             };
 
