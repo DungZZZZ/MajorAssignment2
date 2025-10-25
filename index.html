@@ -15,19 +15,28 @@
         .legend .sw { width:14px; height:14px; border:1px solid #0001; }
         .fig { margin: 16px 0; display:flex; flex-direction:column; align-items:center; }
         .fig h2 { margin: 8px 0 10px; font-family: sans-serif; }
-        #tooltip {
-            position: absolute;
-            opacity: 0;
-            top: 0;
-            left: 0;
-            width: auto;
-            padding: 10px;
-            background: white;
-            font-family: sans-serif;
-            font-size: medium;
-            border-radius: 2px;
-            line-height: 1;
-        }
+        #tooltip{
+            position:absolute; 
+            opacity:0; 
+            top:0; 
+            left:0; 
+            padding:12px 14px;
+            background:#fff; 
+            border:1px solid #0002; 
+            border-radius:8px; 
+            box-shadow:0 8px 24px rgba(0,0,0,.12);
+            font-family: 'Roboto', sans-serif; 
+            font-size:14px; 
+            line-height:1.35; 
+            pointer-events:none;
+            max-width:320px;
+            }
+
+        #tooltip .title{ font-weight:700; margin-bottom:6px; }
+        #tooltip .meta{ color:#555; margin-bottom:8px; }
+        #tooltip svg.spark{ display:block; margin-top:6px; }
+        #tooltip .axis text{ font-size:10px; fill:#666; }
+        #tooltip .axis path, #tooltip .axis line{ stroke:#0002; }
         
         path {
             stroke-width: .5px;
@@ -40,13 +49,29 @@
             stroke-width: 4px;
         }
 
-        .container{
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
+        .container{ 
+            display:flex; 
+            flex-direction:column; 
+            gap:20px; 
+            align-items:center; 
         }
         
+        .row{ 
+            display:flex; 
+            flex-wrap:wrap; 
+            gap:20px; 
+            justify-content:center; 
+            width:100%; 
+            max-width:1200px; 
+        }
+
+        .fig{ 
+            flex:1 1 520px; 
+            display:flex; 
+            flex-direction:column; 
+            align-items:center; 
+        }
+
         body, h1, h2, h3 {
             font-family: 'Roboto', sans-serif;
         }
@@ -95,12 +120,17 @@
 <body>
     <div id="tooltip"></div>
     <div class="container">
-        <h1>Major Assignment 2 — Geospatial Choropleths</h1> <!--Tittle-->
-        <h3>Aiden Nguyen</h3>                                <!--Name-->
-        <div class="fig1">  <h2>Population in 1980</h2></div>        <!-- MAP A (1980 Population) -->
-        <div class="fig2">  <h2>Population Change (1980 - 2010)</h2></div>        <!-- MAP B (Population Change) -->
-        <div class="fig3">  <h2>Gini Index by Town</h2></div>        <!-- Add map C container (Color code) -->
+        <h1>Major Assignment 2 — Geospatial Choropleths</h1>
+        <h3>Aiden Nguyen</h3>
 
+        <div class="row">
+            <div class="fig fig1"><h2>Population in 1980</h2></div>
+            <div class="fig fig2"><h2>Population Change (1980 - 2010)</h2></div>
+        </div>
+
+        <div class="row">
+            <div class="fig fig3"><h2>Gini Index by Town</h2></div>
+        </div>
     </div>
 
     <script>
@@ -295,7 +325,85 @@
                 25027: "Worcester County",
             };
 
+            // Build { county -> [{year, value}] } from CSV.
+            function buildGiniSeriesByCounty(gini_data) {
+                const seriesByCounty = new Map();
 
+                gini_data.forEach(row => {
+                    const county = (row["Geographic Area Name"] || "")
+                        .replace(", Massachusetts","")
+                        .trim();
+                
+                    const year = +row["year"];
+                    const gini = +row["Estimate!!Gini Index"];
+                    if (!isNaN(gini) && !isNaN(year)) {
+                        if (!seriesByCounty.has(county)) {
+                            seriesByCounty.set(county, []);
+                        }
+                        seriesByCounty.get(county).push({ year, value: gini });
+                        }
+                    });
+
+                // Sort each series by year
+                for (const [county, series] of seriesByCounty) {
+                    series.sort((a, b) => a.year - b.year);
+                }
+
+                return seriesByCounty;
+            }
+
+            // Render a small line chart into the tooltip container.
+            function renderGiniSparkline(container, series, titleText="Gini index (time)") {
+                // Clear any previous chart content (but keep the tooltip node alive)
+                container.selectAll(".spark-wrap").remove();
+
+                const W = 260, H = 150;
+                const M = { t: 18, r: 14, b: 34, l: 36 };
+
+                const x = d3.scaleLinear()
+                    .domain(d3.extent(series, d=>d.year))
+                    .range([M.l, W - M.r]);
+
+                const y = d3.scaleLinear()
+                    .domain(d3.extent(series, d=>d.value)).nice()
+                    .range([H - M.b, M.t]);
+
+                const wrap = container.append("div").attr("class","spark-wrap");
+                wrap.append("div").attr("class","title").text(titleText);
+
+                const svg = wrap.append("svg").attr("class","spark").attr("width", W).attr("height", H);
+
+                const line = d3.line()
+                    .x(d=>x(d.year))
+                    .y(d=>y(d.value));
+
+                // axes
+                svg.append("g").attr("class","axis x")
+                    .attr("transform", `translate(0,${H - M.b})`)
+                    .call(d3.axisBottom(x).ticks(4).tickFormat(d3.format("d")));
+
+                svg.append("g").attr("class","axis y")
+                    .attr("transform", `translate(${M.l},0)`)
+                    .call(d3.axisLeft(y).ticks(4));
+
+                // line
+                svg.append("path")
+                    .datum(series)
+                    .attr("fill","none")
+                    .attr("stroke","#3a86ff")
+                    .attr("stroke-width",2)
+                    .attr("d", line);
+
+                // end points 
+                const last = series[series.length - 1];
+                if (last) {
+                    svg.append("circle")
+                    .attr("cx", x(last.year))
+                    .attr("cy", y(last.value))
+                    .attr("r", 2.5);
+                }
+            }
+            
             const generateMap3 = (topo_data, gini_data, containerName, width, height, margin = 30) => {
                 const svg = d3.select(containerName).append("svg")
                     .attr("width", width)
@@ -303,19 +411,34 @@
 
                 const geojson = topojson.feature(topo_data, topo_data.objects.ma);
 
-                const giniMap = new Map();
+                // Build (county -> series of {year, value})
+                const giniSeriesByCounty = buildGiniSeriesByCounty(gini_data);
+                
+                //single current value 
+                const giniNowByCounty = new Map();
                 gini_data.forEach(d => {
-                    const county = d["Geographic Area Name"].replace(", Massachusetts", "").trim();
-                    const gini = +d["Estimate!!Gini Index"];
-                    if (!giniMap.has(county) && !isNaN(gini)) {
-                        giniMap.set(county, gini);
+                    const county = (d["Geographic Area Name"] || "")
+                        .replace(", Massachusetts","")
+                        .trim();
+                    const val = +d["Estimate!!Gini Index"];
+                    const year = +d["year"];
+                    if (!isNaN(val) && !isNaN(year)) {
+                        if (!giniNowByCounty.has(county) || giniNowByCounty.get(county).year < year) {
+                            giniNowByCounty.set(county, { year, value: val });
+                        }
                     }
                 });
+
 
                 const projection = d3.geoMercator().fitSize([width - margin, height - margin], geojson);
                 const path = d3.geoPath().projection(projection);
 
-                const giniDomain = d3.extent(Array.from(giniMap.values()));
+                // Color domain 
+                const valuesForDomain = Array.from(giniNowByCounty.values()).length
+                    ? Array.from(giniNowByCounty.values()).map(d => d.value)
+                    : Array.from(giniSeriesByCounty.values()).flat().map(d=>d.value);
+                
+                const giniDomain = d3.extent(valuesForDomain);
 
                 const colorInterpolator = d3.scaleSequential(d3.interpolateViridis)
                     .domain(giniDomain);
@@ -328,41 +451,52 @@
                     .append("path")
                     .attr("d", d => path(d))
                     .attr("fill", d => {
-                        const fipsCode = d.properties.FIPS_STCO;
-                        const countyName = fipsToCountyName[fipsCode]; 
-                        const gini = giniMap.get(countyName);
-                        return gini !== undefined ? colorInterpolator(gini) : "#ccc";
-                    })
-                .on("mouseenter", (event, d) => {
-                    const townName = d.properties.TOWN;
-                    const fipsCode = d.properties.FIPS_STCO;
-                    const countyName = fipsToCountyName[fipsCode];
-                    const gini = giniMap.get(countyName);
+                        const countyName = fipsToCountyName[d.properties.FIPS_STCO];
+                        const giniVal =
+                            giniNowByCounty.get(countyName)?.value ??
+                            (giniSeriesByCounty.get(countyName)?.at(-1)?.value);
+                        return (giniVal !== undefined) ? colorInterpolator(giniVal) : "#ccc";
+                        })
+                    .on("mouseenter", (event, d) => {
+                        const townName = d.properties.TOWN;
+                        const countyName = fipsToCountyName[d.properties.FIPS_STCO];
+                        const series = giniSeriesByCounty.get(countyName) || [];
 
-                    tooltip.transition()
-                        .duration(200)
-                        .style("opacity", 0.9);
+                        tooltip.interrupt().style("opacity", 1);
+                        tooltip.html(`
+                            <div class="title">${townName}</div>
+                            <div class="meta"><b>County:</b> ${countyName || "N/A"}</div>
+                        `);
 
-                    tooltip.html(`
-                        <b>Town:</b> ${townName}<br/>
-                        <b>County:</b> ${countyName || "N/A"}<br/>
-                        <b>Gini Index:</b> ${gini !== undefined ? gini.toFixed(3) : "N/A"}
-                    `)
-                        .style("left", event.pageX + 10 + "px")
-                        .style("top", event.pageY + 10 + "px");
-                })
-                .on("mousemove", (event) => {
-                    tooltip
-                        .style("left", event.pageX + 10 + "px")
-                        .style("top", event.pageY + 10 + "px");
-                })
-                .on("mouseout", () => {
-                    tooltip.transition()
-                    .duration(300)
-                    .style("opacity", 0);
-                });
+                        if (series.length >= 2) {
+                            renderGiniSparkline(tooltip, series, "Gini index over time");
+                        } else {
+                            // fallback: show single value if we have it
+                            const gNow =
+                            giniNowByCounty.get(countyName) ??
+                            (series[0]?.value);
+                            tooltip.append("div")
+                            .attr("class","meta")
+                            .html(`<b>Gini Index:</b> ${gNow !== undefined ? gNow.toFixed(3) : "N/A"}`);
+                        }
 
-
+                        tooltip
+                            .style("left", (event.pageX + 12) + "px")
+                            .style("top",  (event.pageY + 12) + "px");
+                        })
+                        .on("mousemove", (event) => {
+                        tooltip
+                            .style("left", (event.pageX + 12) + "px")
+                            .style("top",  (event.pageY + 12) + "px");
+                        })
+                        .on("mouseleave", () => {
+                        tooltip.transition().duration(180).style("opacity", 0)
+                            .on("end", () => {
+                            // remove sparkline so it "disappears" with the tooltip
+                            tooltip.selectAll(".spark-wrap").remove();
+                            tooltip.html(""); // keep the node but clear content
+                            });
+                        });
             };
             
 
@@ -376,17 +510,17 @@
 
 
 
-        // app.get('/api/books/:isbn', (req,resp) => {
-        //     // use mongoose to retrieve all books from Mongo
-        //     Book.find({isbn10: req.params.isbn},
-        //         function(err, data) {
-        //             if (err) {
-        //                 resp.json({ message: 'Book not found' });
-        //             } else {
-        //                 resp.json(data);
-        //             }
-        //         });
-        // });
+        app.get('/api/books/:isbn', (req,resp) => {
+            // use mongoose to retrieve all books from Mongo
+            Book.find({isbn10: req.params.isbn},
+                function(err, data) {
+                    if (err) {
+                        resp.json({ message: 'Book not found' });
+                    } else {
+                        resp.json(data);
+                    }
+                });
+        });
 
 
 
